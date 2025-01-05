@@ -1,59 +1,71 @@
 #!/bin/bash
 
 #set -x # Enable debug mode for tracing commands
-#set -e  # Exit immediately if a command exits with a non-zero status
+#set -v # Enable verbose mode for tracing commands
+#set -e # Exit immediately if a command exits with a non-zero status
 
-# Ensure required commands are installed
-command -v ffmpeg >/dev/null 2>&1 || { echo "ffmpeg is required but not installed,try 'sudo apt install -y ffmpeg'. Aborting."; exit 1; }
+# Ensure required command are installed
+command -v ffmpeg >/dev/null 2>&1 || {
+    echo "Command ffmpeg not found, but can be installed with:"
+    echo "sudo apt install ffmpeg"
+    echo "Please ask your administrator"
+    echo "Exiting..."
+    exit 1
+}
+
+## Ensure required commands are installed
+#for cmd in ffmpeg parallel; do
+#    command -v "$cmd" >/dev/null 2>&1 || {
+#    echo "Command '$cmd' not found, but can be installed with:"
+#    echo "apt install $cmd"
+#    echo "Please ask your administrator"
+#    echo "Exiting..."
+#    exit 1
+#    }
+#done
 
 # Constants
-USERNAME="$(whoami)"                         # Get the current username
-BACKUP_DIR="/home/$USERNAME/backups"         # Base backup directory
-LOG_DIR="$BACKUP_DIR/log"                    # Base Log directory
-OUTPUT_DIR="$(pwd)"                          # Output directory for .mkv files
-OUTPUT_EXT="mkv"                             # Output file extension
-LOGFILE="$LOG_DIR/hakuneko.log"              # Main script log file
-FFMPEG_LOG="$LOG_DIR/hakuneko_ffmpeg.log"    # FFmpeg error log file
+LOG_DIR="$HOME/local/log"           # Base Log directory
+OUTPUT_DIR="$(pwd)"                 # Output directory for *.mkv files
+OUTPUT_EXT="mkv"                    # Output file extension
+LOG_FILE="$LOG_DIR/hakuneko.log"    # Main script log file
+FFMPEG_LOG="$LOG_DIR/ffmpeg.log"    # FFmpeg error log file
 
-# Check and create backup and log directories if they do not exist
-mkdir -p "$BACKUP_DIR" "$LOG_DIR"
+# function to Ensure required directories are writable and check if they are exists
+writable_exist() {
+    local dir="$1"
+    if [ ! -w "$dir" ]; then
+        echo "No write permission to the directory $dir Aborting..."
+        exit 1
+    fi
+    if [ ! -d "$dir" ]; then
+        echo "Directory does not exist: $dir"
+        mkdir -p "$dir"
+        echo "Created directory: $dir"
+    fi
+}
 
-# Check if the output directory is writable
-if [ ! -w "$OUTPUT_DIR" ]; then
-    echo "Output directory is not writable: $OUTPUT_DIR"
-    exit 1
-fi
+writable_exist "$LOG_DIR"
+writable_exist "$OUTPUT_DIR"
 
 # Create log file
-exec > >(tee -a "$LOGFILE") 2>&1
+exec > >(tee -a "$LOG_FILE") 2>&1
 echo "[$(date +'%m-%d-%Y %H:%M:%S')] Starting video and audio extraction..."
 
-# Function to process a directory
+# Function to process the directories
 process_directory() {
     local dir="$1"
     local dirname
     local dirnumber
+    local output_path
 
-    # Extract directory name
     dirname=$(basename "$dir")
-
-    # Extract only the numeric part of the directory name
     dirnumber="${dirname%.*}"
-
-    # Check if the directory exists
-    if [ ! -d "$dir" ]; then
-    # if tests is the file not exists and is a directory
-        echo "Directory does not exist: $dir"
-        return 1
-    fi
-
-    # Define output path
-    local output_path="${OUTPUT_DIR}/${dirnumber}.${OUTPUT_EXT}"
+    output_path="${OUTPUT_DIR}/${dirnumber}.${OUTPUT_EXT}"
 
     # Check if the output file already exists and has content
     if [ -e "$output_path" ] && [ "$(stat -c '%s' "$output_path")" -gt 0 ]; then
-    # if tests is the file exists and is gt 0
-        echo "File already exists: $output_path"
+        echo "File already exists: ${dirnumber}.${OUTPUT_EXT}"
         return 0
     fi
 
@@ -64,20 +76,20 @@ process_directory() {
         echo "ffmpeg failed. Check ${FFMPEG_LOG} for details."
         return 1
     fi
-    echo "Extraction successful for $output_path"
+    echo "Extraction successful for $dirnumber"
     return 0
 }
 
 # Get the list of directories containing '.m3u8' files
-directories=() # Initialize an empty array
+directories=()
 while IFS= read -r -d '' dir; do
     # Only include directories with .m3u8 files inside
     if ls "$dir"/*.m3u8 >/dev/null 2>&1; then
-        directories+=("$dir") # Append to array
+        directories+=("$dir")
     fi
 done < <(find . -maxdepth 1 -type d ! -name . -print0 | sort -zV)
 
-# Iterate over each directory
+# Iterate over each directory using for loop
 for dir in "${directories[@]}"; do
     if [[ "$dir" == "." ]]; then
         continue
@@ -102,7 +114,8 @@ fi
 
 # Cleanup function to remove the temporary files
 cleanup() {
-    rm -f "$LOGFILE" "$FFMPEG_LOG"
+    rm -f "$LOG_FILE" "$FFMPEG_LOG"
 }
 trap cleanup EXIT
 
+exit 0
